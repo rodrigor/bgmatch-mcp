@@ -2,6 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 import { BGMatchApi, DadosPartida, ErroApi, Jogo, Partida } from './api.js';
+import { BggApi, ErroBgg, JogoBgg, sugereCategoria } from './bgg.js';
 import { ErroDeNome, localCanonico, normaliza, resolve } from './nomes.js';
 
 const CATEGORIAS: Record<string, string> = {
@@ -36,7 +37,7 @@ const registroPadrao: Registro = (acao, pessoa, detalhes) => {
  * Registra as ferramentas no servidor MCP. `pessoa` é quem está usando (vem do
  * token) e entra no log de toda escrita.
  */
-export function registraFerramentas(server: McpServer, api: BGMatchApi, pessoa: string, registro: Registro = registroPadrao) {
+export function registraFerramentas(server: McpServer, api: BGMatchApi, bgg: BggApi, pessoa: string, registro: Registro = registroPadrao) {
   const ferramenta = <S extends z.ZodRawShape>(
     nome: string,
     config: {
@@ -51,7 +52,7 @@ export function registraFerramentas(server: McpServer, api: BGMatchApi, pessoa: 
       try {
         return texto(await executa(args));
       } catch (e) {
-        if (e instanceof ErroDeNome || e instanceof ErroApi || e instanceof ErroDeUso) {
+        if (e instanceof ErroDeNome || e instanceof ErroApi || e instanceof ErroDeUso || e instanceof ErroBgg) {
           return { isError: true, content: [{ type: 'text', text: e.message }] };
         }
         console.error(`[${nome}]`, e);
@@ -196,20 +197,50 @@ export function registraFerramentas(server: McpServer, api: BGMatchApi, pessoa: 
     return resultados.map((j) => ({ titulo: j.title, slug: j.slug, ja_cadastrado: j.cadastrado, link: j.link }));
   });
 
+  ferramenta('buscar_jogo_bgg', {
+    title: 'Buscar jogo no BGG',
+    description: 'Procura um jogo ou expansão no BoardGameGeek pelo nome (ou pelo id do BGG) e mostra os dados que '
+      + 'cadastrar_jogo_bgg usaria: nome, ano, jogadores, peso, categoria sugerida e, para expansão, o jogo base. '
+      + 'Diz também se o jogo já está no BGMatch. Use quando um jogo não estiver cadastrado.',
+    inputSchema: {
+      termo: z.string().min(2).optional().describe('Nome do jogo'),
+      bgg_id: z.number().int().positive().optional().describe('Id do jogo no BGG, se já souber'),
+    },
+    annotations: { readOnlyHint: true, openWorldHint: true },
+  }, async ({ termo, bgg_id }) => {
+    if (!termo && !bgg_id) {
+      throw new ErroDeUso('Informe o nome do jogo ou o bgg_id.');
+    }
+    const ids = bgg_id ? [bgg_id] : (await bgg.busca(termo!)).slice(0, 8).map((r) => r.bgg_id);
+    if (!ids.length) {
+      return { resultados: [], aviso: `Nada encontrado no BGG para "${termo}".` };
+    }
+    const [detalhes, jogos] = await Promise.all([bgg.detalhes(ids), api.jogos()]);
+    const porId = new Map(detalhes.map((d) => [d.bgg_id, d]));
+    return ids.map((id) => porId.get(id)).filter((d): d is JogoBgg => Boolean(d)).map((d) => descreveBgg(d, jogos));
+  });
+
   ferramenta('consultar_bgg', {
     title: 'Consultar BGG',
-    description: 'Busca no BoardGameGeek o id e o peso de um jogo cadastrado. Só consulta; para gravar, use atualizar_jogo.',
-    inputSchema: { jogo: z.string().describe('Nome ou id do jogo') },
+    description: 'Busca no BoardGameGeek o id e o peso de um jogo já cadastrado no BGMatch. Só consulta; para gravar, use atualizar_jogo.',
+    inputSchema: { jogo: z.string().describe('Nome ou id do jogo no BGMatch') },
     annotations: { readOnlyHint: true, openWorldHint: true },
   }, async ({ jogo }) => {
     const alvo = resolve(await api.jogos(), jogo, 'jogo');
-    const bgg = await api.dadosBgg(alvo.id);
+    let bggId = alvo.bgg_id;
+    if (!bggId) {
+      const achados = await bgg.busca(alvo.nome);
+      bggId = achados.find((r) => normaliza(r.nome) === normaliza(alvo.nome))?.bgg_id ?? null;
+    }
+    const detalhe = bggId ? (await bgg.detalhes([bggId]))[0] : undefined;
     return {
       jogo: alvo.nome,
-      bgg_id_encontrado: bgg.bgg_id,
-      peso_bgg_encontrado: bgg.bgg_weight,
+      bgg_id_encontrado: detalhe?.bgg_id ?? null,
+      nome_no_bgg: detalhe?.nome ?? null,
+      peso_bgg_encontrado: detalhe?.peso ?? null,
       bgg_id_cadastrado: alvo.bgg_id,
       peso_bgg_cadastrado: numero(alvo.bgg_weight),
+      ...(detalhe ? {} : { aviso: 'Não achei no BGG um jogo com o mesmo nome; use buscar_jogo_bgg para ver as opções.' }),
     };
   });
 
@@ -348,6 +379,51 @@ export function registraFerramentas(server: McpServer, api: BGMatchApi, pessoa: 
     return { importado: resposta.sucesso, jogo: resposta.jogo };
   });
 
+  ferramenta('cadastrar_jogo_bgg', {
+    title: 'Cadastrar jogo pelo BGG',
+    description: 'Cadastra no BGMatch um jogo ou expansão com os dados do BoardGameGeek (use buscar_jogo_bgg antes e confirme com a pessoa). '
+      + 'Sem categoria, usa a sugerida. Expansão é ligada ao jogo base se ele já estiver no BGMatch.',
+    inputSchema: {
+      bgg_id: z.number().int().positive(),
+      categoria: z.enum(['P', 'M', 'L', 'X', 'Y']).optional().describe('P pesado, M médio, L leve, X expansão, Y party/infantil'),
+      nome: z.string().min(1).optional().describe('Nome a usar no BGMatch, se diferente do nome principal no BGG'),
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+  }, async ({ bgg_id, categoria, nome }) => {
+    const [detalhe] = await bgg.detalhes([bgg_id]);
+    if (!detalhe) {
+      throw new ErroDeUso(`Nenhum jogo com o id ${bgg_id} no BGG.`);
+    }
+    const jogos = await api.jogos();
+    const base = detalhe.bases.map((id) => jogos.find((j) => Number(j.bgg_id) === id)).find(Boolean) ?? null;
+    const { jogo } = await api.cadastraJogo({
+      bgg_id: detalhe.bgg_id,
+      nome: nome?.trim() || detalhe.nome,
+      categoria: categoria ?? sugereCategoria(detalhe),
+      min: detalhe.min,
+      max: detalhe.max,
+      imagem: detalhe.imagem,
+      id_base: base?.id ?? null,
+      coop: detalhe.cooperativo,
+      bgg_weight: detalhe.peso,
+    });
+    registro('cadastrar_jogo_bgg', pessoa, { bgg_id, jogo });
+    return {
+      cadastrado: true,
+      jogo: {
+        id: jogo.id,
+        nome: jogo.nome,
+        categoria: CATEGORIAS[jogo.categoria] ?? jogo.categoria,
+        peso_bgg: numero(jogo.bgg_weight),
+        jogadores: jogo.min || jogo.max ? `${jogo.min ?? '?'} a ${jogo.max ?? '?'}` : null,
+        ...(base ? { expansao_de: base.nome } : {}),
+      },
+      ...(detalhe.tipo === 'boardgameexpansion' && !base
+        ? { aviso: 'O jogo base desta expansão não está no BGMatch; ela ficou sem jogo base.' }
+        : {}),
+    };
+  });
+
   ferramenta('atualizar_jogo', {
     title: 'Atualizar jogo',
     description: 'Muda categoria, modo cooperativo, id e peso do BGG ou marca o jogo como fora da coleção. Só os campos informados mudam.',
@@ -403,6 +479,27 @@ function validaData(data: string) {
   if (Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== data) {
     throw new ErroDeUso(`Data inválida: ${data}.`);
   }
+}
+
+function descreveBgg(d: JogoBgg, jogos: Jogo[]) {
+  const cadastrado = jogos.find((j) => Number(j.bgg_id) === d.bgg_id);
+  const base = d.bases.map((id) => jogos.find((j) => Number(j.bgg_id) === id)).find(Boolean);
+  return {
+    bgg_id: d.bgg_id,
+    nome: d.nome,
+    tipo: d.tipo === 'boardgameexpansion' ? 'expansão' : 'jogo',
+    ano: d.ano,
+    jogadores: d.min || d.max ? `${d.min ?? '?'} a ${d.max ?? '?'}` : null,
+    peso_bgg: d.peso,
+    categoria_sugerida: CATEGORIAS[sugereCategoria(d)],
+    cooperativo: d.cooperativo,
+    ...(d.tipo === 'boardgameexpansion'
+      ? { jogo_base_no_bgmatch: base ? base.nome : 'não cadastrado' }
+      : {}),
+    outros_nomes: d.outros_nomes,
+    ja_no_bgmatch: cadastrado ? `${cadastrado.nome} (id ${cadastrado.id})` : false,
+    link: `https://boardgamegeek.com/boardgame/${d.bgg_id}`,
+  };
 }
 
 export function formataPartida(p: Partida) {

@@ -3,6 +3,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import type { Request, Response } from 'express';
 import { BGMatchApi } from './api.js';
+import { BggApi } from './bgg.js';
 import { identifica, LimiteDeFalhas } from './auth.js';
 import { carregaConfig, Config } from './config.js';
 import { registraFerramentas } from './ferramentas.js';
@@ -13,7 +14,7 @@ const INSTRUCOES = 'Servidor do BGMatch, o registro de partidas de boardgame do 
   + 'Jogos e jogadores podem ser informados pelo nome; se o nome for ambíguo, a ferramenta devolve as opções. '
   + 'Antes de excluir ou editar uma partida, confirme com a pessoa.';
 
-export function criaApp(config: Config, api: BGMatchApi) {
+export function criaApp(config: Config, api: BGMatchApi, bgg: BggApi) {
   const app = createMcpExpressApp({ host: '0.0.0.0', allowedHosts: config.hostsPermitidos });
   // Atrás do Caddy: o IP do cliente vem no X-Forwarded-For posto por ele.
   app.set('trust proxy', 1);
@@ -39,7 +40,7 @@ export function criaApp(config: Config, api: BGMatchApi) {
 
     // Modo sem sessão: um servidor e um transporte por requisição.
     const server = new McpServer({ name: 'bgmatch', version: VERSAO }, { instructions: INSTRUCOES });
-    registraFerramentas(server, api, pessoa);
+    registraFerramentas(server, api, bgg, pessoa);
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
     res.on('close', () => {
       transport.close();
@@ -69,7 +70,8 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const config = carregaConfig();
   const api = new BGMatchApi(config.apiUrl, config.usuario, config.senha);
   const pessoas = [...new Set(config.tokens.values())].join(', ');
-  criaApp(config, api).listen(config.porta, () => {
-    console.log(`bgmatch-mcp ${VERSAO} ouvindo na porta ${config.porta}; API ${config.apiUrl}; tokens de: ${pessoas}`);
+  const bgg = new BggApi(config.bggToken);
+  criaApp(config, api, bgg).listen(config.porta, () => {
+    console.log(`bgmatch-mcp ${VERSAO} ouvindo na porta ${config.porta}; API ${config.apiUrl}; BGG ${config.bggToken ? 'com' : 'sem'} token; tokens de: ${pessoas}`);
   });
 }

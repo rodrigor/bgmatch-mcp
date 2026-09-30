@@ -6,6 +6,8 @@ export interface Config {
   senha: string;
   /** Token de acesso de cada pessoa: token => nome. */
   tokens: Map<string, string>;
+  /** Token da XML API do BGG; sem ele, as ferramentas do BGG respondem com erro. */
+  bggToken?: string;
   porta: number;
   /** Hosts aceitos no cabeçalho Host (proteção contra DNS rebinding). */
   hostsPermitidos: string[];
@@ -53,6 +55,7 @@ export function carregaConfig(env: NodeJS.ProcessEnv = process.env): Config {
     usuario: obrigatoria('BGMATCH_USUARIO'),
     senha: obrigatoria('BGMATCH_SENHA'),
     tokens,
+    bggToken: env.BGG_TOKEN || undefined,
     porta: Number(env.PORT ?? 8096),
     hostsPermitidos: (env.BGMATCH_MCP_HOSTS ?? 'localhost,127.0.0.1')
       .split(',').map((h) => h.trim()).filter(Boolean),

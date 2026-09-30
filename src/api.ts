@@ -111,7 +111,9 @@ export class BGMatchApi {
         continue;
       }
       if (!resposta.ok) {
-        throw new ErroApi(resposta.status, mensagemDeErro(resposta.status, caminho));
+        // Erros de validação do backend vêm como {"erro": "..."}.
+        const detalhe = await resposta.json().then((c: any) => c?.erro).catch(() => undefined);
+        throw new ErroApi(resposta.status, typeof detalhe === 'string' ? detalhe : mensagemDeErro(resposta.status, caminho));
       }
       return (await resposta.json()) as T;
     }
@@ -186,6 +188,14 @@ export class BGMatchApi {
 
   atualizaJogo(id: number, campos: Record<string, unknown>) {
     return this.request<{ updated: number }>('POST', `/jogos/${id}/update`, campos);
+  }
+
+  /** Cadastra um jogo com dados do BGG (POST /jogos/novo). */
+  cadastraJogo(dados: {
+    bgg_id: number; nome: string; categoria: string; min: number | null; max: number | null;
+    imagem: string | null; id_base: number | null; coop: boolean; bgg_weight: number | null;
+  }) {
+    return this.request<{ sucesso: boolean; jogo: Jogo }>('POST', '/jogos/novo', dados);
   }
 
   dadosBgg(id: number) {

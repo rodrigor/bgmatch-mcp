@@ -42,11 +42,13 @@ Jogos e jogadores são informados pelo nome, sem diferenciar acentos e maiúscul
 | `listar_locais` | Locais já usados, para manter a grafia |
 | `ranking` | Classificação do ano pela regra da época; desde 2024, também o detalhe de um mês |
 | `pesquisar_ludopedia` | Procura um jogo na Ludopedia para importar |
-| `consultar_bgg` | Busca id e peso de um jogo no BoardGameGeek, sem gravar |
+| `buscar_jogo_bgg` | Procura um jogo ou expansão no BoardGameGeek e mostra os dados do cadastro, com a categoria sugerida |
+| `consultar_bgg` | Busca id e peso no BoardGameGeek de um jogo já cadastrado, sem gravar |
 | `registrar_partida` | Registra uma partida; se só a expansão for informada, deduz o jogo base |
 | `editar_partida` | Altera campos de uma partida; `jogadores` substitui a lista inteira |
 | `excluir_partida` | Apaga uma partida (sem volta) |
 | `importar_jogo` | Cadastra um jogo a partir do slug da Ludopedia |
+| `cadastrar_jogo_bgg` | Cadastra um jogo ou expansão com os dados do BoardGameGeek |
 | `atualizar_jogo` | Muda categoria, cooperativo, id e peso do BGG ou tira o jogo da coleção |
 
 As ferramentas que alteram ou apagam dados vêm marcadas como destrutivas, e os clientes MCP costumam pedir confirmação antes de executá-las.
@@ -54,7 +56,9 @@ As ferramentas que alteram ou apagam dados vêm marcadas como destrutivas, e os 
 Duas limitações de hoje:
 
 - `ranking` depende do endpoint `GET /api/ranking/{ano}` com o cálculo no backend, que ainda não está publicado no BGMatch em produção. Até lá, a ferramenta responde avisando disso.
-- A Ludopedia tem recusado as requisições do servidor com HTTP 403, então `pesquisar_ludopedia` e `importar_jogo` falham também pelo site.
+- A Ludopedia tem recusado as requisições do servidor com HTTP 403, então `pesquisar_ludopedia` e `importar_jogo` falham também pelo site. Jogo novo entra por `buscar_jogo_bgg` e `cadastrar_jogo_bgg`, que dependem do endpoint `POST /api/jogos/novo` do BGMatch.
+
+A categoria sugerida segue a faixa de peso do cadastro do grupo: peso 2,7 ou mais é pesado, de 1,9 a 2,7 é médio e abaixo disso é leve. Party e infantil no BGG viram party/infantil, e expansão vira expansão.
 
 ## Administração
 
@@ -66,6 +70,7 @@ Duas limitações de hoje:
 | `BGMATCH_USUARIO`, `BGMATCH_SENHA` | Conta de serviço na tabela `usuarios` do BGMatch |
 | `BGMATCH_MCP_TOKENS` | Tokens de acesso, `nome:token` separados por vírgula |
 | `BGMATCH_MCP_HOSTS` | Valores aceitos no cabeçalho `Host` (proteção contra DNS rebinding) |
+| `BGG_TOKEN` | Token da XML API do BGG, obtido em boardgamegeek.com/using_the_xml_api; sem ele, as ferramentas do BGG respondem com erro |
 | `PORT` | Porta HTTP, padrão 8096 |
 
 Veja `.env.example`.
