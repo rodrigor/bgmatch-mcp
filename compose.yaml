@@ -1,0 +1,9 @@
+services:
+  bgmatch-mcp:
+    build: .
+    container_name: bgmatch-mcp
+    env_file: .env
+    ports:
+      # Só na interface local: o acesso externo passa pelo proxy com TLS.
+      - "127.0.0.1:8096:8096"
+    restart: unless-stopped
