@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 import { BGMatchApi, DadosPartida, ErroApi, Jogo, Partida } from './api.js';
-import { ErroDeNome, normaliza, resolve } from './nomes.js';
+import { ErroDeNome, localCanonico, normaliza, resolve } from './nomes.js';
 
 const CATEGORIAS: Record<string, string> = {
   P: 'Pesado',
@@ -229,22 +229,23 @@ export function registraFerramentas(server: McpServer, api: BGMatchApi, pessoa: 
       jogo: z.string().describe('Nome ou id do jogo base'),
       expansao: z.string().optional().describe('Nome ou id da expansão usada'),
       data: DATA,
-      local: z.string().min(1).describe('Onde foi jogada; veja listar_locais para manter a grafia'),
+      local: z.string().min(1).describe('Onde foi jogada. Se bater com um local já usado (sem diferenciar acento, caixa e espaços), fica a grafia existente'),
       jogadores: JOGADORES_PARTIDA,
       conta_para_ranking: z.boolean().default(true),
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   }, async (args) => {
     validaData(args.data);
-    const [jogos, jogadores] = await Promise.all([api.jogos(), api.jogadores()]);
+    const [jogos, jogadores, locais] = await Promise.all([api.jogos(), api.jogadores(), api.locais()]);
     const { jogo, expansao } = resolveJogoEExpansao(jogos, args.jogo, args.expansao);
     const lista = resolveJogadores(jogadores, args.jogadores);
+    const local = localCanonico(args.local, locais);
 
     const dados: DadosPartida = {
       id_jogo: jogo.id,
       id_expansao: expansao?.id ?? null,
       data: args.data,
-      local: args.local.trim(),
+      local: local.local,
       ranking: args.conta_para_ranking,
       jogadores: lista,
     };
@@ -258,7 +259,11 @@ export function registraFerramentas(server: McpServer, api: BGMatchApi, pessoa: 
       .sort((a, b) => b.id - a.id)[0];
 
     registro('registrar_partida', pessoa, { id: criada?.id ?? null, dados });
-    return { registrada: true, partida: criada ? formataPartida(criada) : dados };
+    return {
+      registrada: true,
+      partida: criada ? formataPartida(criada) : dados,
+      ...(local.novo ? { aviso: `"${local.local}" é um local novo no BGMatch.` } : {}),
+    };
   });
 
   ferramenta('editar_partida', {
@@ -301,7 +306,7 @@ export function registraFerramentas(server: McpServer, api: BGMatchApi, pessoa: 
       dados.data = args.data;
     }
     if (args.local !== undefined) {
-      dados.local = args.local.trim();
+      dados.local = localCanonico(args.local, await api.locais()).local;
     }
     if (args.conta_para_ranking !== undefined) {
       dados.ranking = args.conta_para_ranking;

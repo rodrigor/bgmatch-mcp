@@ -4,7 +4,7 @@ import { BGMatchApi, Jogo } from '../src/api.js';
 import { identifica, LimiteDeFalhas } from '../src/auth.js';
 import { leTokens } from '../src/config.js';
 import { ErroDeUso, resolveJogadores, resolveJogoEExpansao } from '../src/ferramentas.js';
-import { ErroDeNome, normaliza, resolve } from '../src/nomes.js';
+import { ErroDeNome, localCanonico, normaliza, resolve } from '../src/nomes.js';
 
 const jogadores = [
   { id: 1, nome: 'Gedvan' },
@@ -148,4 +148,23 @@ test('resolveJogadores ordena por posição e recusa jogador repetido', () => {
     { jogador: 'gedvan', posicao: 1 },
     { jogador: '1', posicao: 2 },
   ]), /mais de uma vez/);
+});
+
+test('resolve entende nomes do BG Stats', () => {
+  const grupo = [
+    { id: 1, nome: 'Gedvan' }, { id: 2, nome: 'Fechine' }, { id: 3, nome: 'Bruno' },
+    { id: 4, nome: 'Rodrigo' }, { id: 6, nome: 'Herbert' },
+  ];
+  assert.equal(resolve(grupo, 'Gedvan (Amigos Board)', 'jogador').id, 1);
+  assert.equal(resolve(grupo, 'Bruno Vinicius (Amigos Board)', 'jogador').id, 3);
+  assert.equal(resolve(grupo, 'Rodrigo Rebouças', 'jogador').id, 4);
+  // Prefixo só vale com palavra inteira.
+  assert.throws(() => resolve(grupo, 'Brunoso', 'jogador'), ErroDeNome);
+});
+
+test('localCanonico reaproveita a grafia existente', () => {
+  const locais = ['Board Game Arena', 'Casa de Gedvan', ''];
+  assert.deepEqual(localCanonico('Boardgamearena', locais), { local: 'Board Game Arena', novo: false });
+  assert.deepEqual(localCanonico('casa de gedvan', locais), { local: 'Casa de Gedvan', novo: false });
+  assert.deepEqual(localCanonico(' Casa de Herbert ', locais), { local: 'Casa de Herbert', novo: true });
 });

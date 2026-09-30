@@ -29,7 +29,8 @@ export function resolve<T extends { id: number; nome: string }>(itens: T[], text
     throw new ErroDeNome(`Nenhum ${tipo} com id ${id}.`);
   }
 
-  const alvo = normaliza(bruto);
+  // O BG Stats acrescenta o grupo entre parênteses: "Gedvan (Amigos Board)".
+  const alvo = normaliza(bruto.replace(/\([^)]*\)/g, ' '));
   if (!alvo) {
     throw new ErroDeNome(`Informe o nome do ${tipo}.`);
   }
@@ -50,6 +51,16 @@ export function resolve<T extends { id: number; nome: string }>(itens: T[], text
     throw ambiguo(parciais, texto, tipo);
   }
 
+  // Nome completo informado para um cadastro mais curto: "Bruno Vinicius" é
+  // "Bruno" e "Rodrigo Rebouças" é "Rodrigo". Vale só palavra inteira no início.
+  const prefixos = itens.filter((i) => alvo.startsWith(`${normaliza(i.nome)} `));
+  if (prefixos.length === 1) {
+    return prefixos[0];
+  }
+  if (prefixos.length > 1) {
+    throw ambiguo(prefixos, texto, tipo);
+  }
+
   // Sugestões: itens que compartilham alguma palavra com o texto.
   const palavras = alvo.split(' ').filter((p) => p.length > 2);
   const sugestoes = itens
@@ -67,3 +78,15 @@ function ambiguo(itens: { id: number; nome: string }[], texto: string, tipo: str
 }
 
 const descreve = (i: { id: number; nome: string }) => `${i.nome} (id ${i.id})`;
+
+/**
+ * Devolve a grafia já usada de um local, comparando sem acento, caixa e
+ * espaços ("Boardgamearena" é "Board Game Arena"). Sem correspondência,
+ * devolve o texto informado e `novo: true`.
+ */
+export function localCanonico(local: string, existentes: string[]): { local: string; novo: boolean } {
+  const chave = (s: string) => normaliza(s).replace(/ /g, '');
+  const alvo = chave(local);
+  const achado = existentes.find((e) => e && chave(e) === alvo);
+  return achado ? { local: achado, novo: false } : { local: local.trim(), novo: true };
+}
