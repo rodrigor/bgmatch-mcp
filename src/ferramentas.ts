@@ -260,7 +260,7 @@ export function registraFerramentas(server: McpServer, api: BGMatchApi, bgg: Bgg
       jogo: z.string().describe('Nome ou id do jogo base'),
       expansao: z.string().optional().describe('Nome ou id da expansão usada'),
       data: DATA,
-      local: z.string().min(1).describe('Onde foi jogada. Se bater com um local já usado (sem diferenciar acento, caixa e espaços), fica a grafia existente'),
+      local: z.string().min(1).describe('Onde foi jogada, informado pela pessoa (o local de um print do BG Stats não é confiável). Se bater com um local já usado (sem diferenciar acento, caixa e espaços), fica a grafia existente'),
       jogadores: JOGADORES_PARTIDA,
       conta_para_ranking: z.boolean().default(true),
     },

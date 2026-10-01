@@ -12,7 +12,11 @@ const VERSAO = '0.1.0';
 
 const INSTRUCOES = 'Servidor do BGMatch, o registro de partidas de boardgame do grupo e do ranking anual. '
   + 'Jogos e jogadores podem ser informados pelo nome; se o nome for ambíguo, a ferramenta devolve as opções. '
-  + 'Antes de excluir ou editar uma partida, confirme com a pessoa.';
+  + 'Antes de registrar, editar ou excluir uma partida, ou de cadastrar um jogo, mostre o que vai gravar e espere a confirmação da pessoa. '
+  + 'Print do app BG Stats: leia o jogo, a data, as colocações e as pontuações, mas NÃO use o local do print, '
+  + 'porque o BG Stats repete o local da partida anterior; pergunte onde foi. '
+  + 'Antes de registrar, veja com listar_partidas se a partida daquele dia já existe. '
+  + 'Jogo que não está cadastrado entra por buscar_jogo_bgg e cadastrar_jogo_bgg; a Ludopedia bloqueia o servidor.';
 
 export function criaApp(config: Config, api: BGMatchApi, bgg: BggApi) {
   const app = createMcpExpressApp({ host: '0.0.0.0', allowedHosts: config.hostsPermitidos });
